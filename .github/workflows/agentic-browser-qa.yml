@@ -154,7 +154,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout exact PR revision without credentials
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
           ref: ${{ needs.resolve.outputs.head-sha }}
           persist-credentials: false
@@ -215,7 +215,7 @@ jobs:
       cancel-in-progress: true
     steps:
       - name: Checkout trusted caller configuration
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
           ref: ${{ needs.resolve.outputs.default-branch }}
           persist-credentials: false
@@ -365,7 +365,7 @@ jobs:
 
       - name: Post or update sticky PR report
         if: steps.validate.outputs.ready == 'true'
-        uses: actions/github-script@373c709c69115d41ff229c7e5df9f8788daa9553 # v9
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         env:
           HEAD_SHA: ${{ needs.resolve.outputs.head-sha }}
           PR_NUMBER: ${{ needs.resolve.outputs.pr-number }}
