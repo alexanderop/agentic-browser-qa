@@ -1,0 +1,63 @@
+{
+  "type": "object",
+  "properties": {
+    "verdict": {
+      "type": "string",
+      "enum": ["HEALTHY", "MINOR_ISSUES", "CRITICAL_BUGS"]
+    },
+    "summary": {
+      "type": "string",
+      "description": "Concise assessment of what was tested and what was observed"
+    },
+    "tests": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "area": {
+            "type": "string",
+            "enum": ["navigation", "forms", "core_features", "mobile", "accessibility", "edge_cases"]
+          },
+          "result": { "type": "string", "enum": ["pass", "fail", "skip"] },
+          "details": { "type": "string" },
+          "screenshot": { "type": "string" }
+        },
+        "required": ["name", "area", "result", "details"],
+        "additionalProperties": false
+      }
+    },
+    "bugs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "severity": {
+            "type": "string",
+            "enum": ["critical", "major", "minor", "suggestion"]
+          },
+          "title": { "type": "string" },
+          "description": { "type": "string" },
+          "steps_to_reproduce": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "expected": { "type": "string" },
+          "actual": { "type": "string" },
+          "screenshot": { "type": "string" }
+        },
+        "required": ["id", "severity", "title", "description", "steps_to_reproduce", "expected", "actual"],
+        "additionalProperties": false
+      }
+    },
+    "console_errors": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  },
+  "required": ["verdict", "summary", "tests", "bugs", "console_errors"],
+  "additionalProperties": false
+}
+

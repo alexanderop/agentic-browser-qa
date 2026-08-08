@@ -1,0 +1,27 @@
+name: QA deployed preview
+
+on:
+  workflow_dispatch:
+    inputs:
+      preview_url:
+        description: Preview URL to test
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  qa:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: alexanderop/agentic-browser-qa@v1
+        with:
+          app-url: ${{ inputs.preview_url }}
+          claude-code-oauth-token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          qa-context: Verify the primary navigation and one complete user flow.
+          device: iPhone 14
+          record-video: true
+

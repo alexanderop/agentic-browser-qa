@@ -1,0 +1,33 @@
+name: Browser QA
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions: {}
+
+jobs:
+  browser-qa:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.pull_requests[0] &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      issues: write
+      pull-requests: read
+      statuses: write
+    uses: alexanderop/agentic-browser-qa/.github/workflows/agentic-browser-qa.yml@v1
+    with:
+      pr_number: ${{ github.event.workflow_run.pull_requests[0].number }}
+      head_sha: ${{ github.event.workflow_run.head_sha }}
+      install_command: pnpm install --frozen-lockfile --ignore-scripts
+      build_command: pnpm build
+      artifact_path: dist
+      device: iPhone 14
+      instructions_file: .github/agentic-browser-qa.md
+    secrets:
+      claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}

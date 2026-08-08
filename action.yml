@@ -1,0 +1,296 @@
+name: Agentic Browser QA
+author: Alexander Opalic
+description: Run evidence-backed browser QA with Claude and agent-browser against an already-running web application.
+
+branding:
+  icon: check-circle
+  color: purple
+
+inputs:
+  app-url:
+    description: Fully qualified URL of the running application to test.
+    required: true
+  claude-code-oauth-token:
+    description: Claude Code OAuth token. Pass this from a GitHub Actions secret.
+    required: true
+  github-token:
+    description: GitHub token passed to claude-code-action.
+    required: true
+  qa-context:
+    description: Untrusted product intent, acceptance criteria, or PR context to test.
+    required: false
+    default: ''
+  instructions:
+    description: Trusted repository-specific QA instructions appended to the default prompt.
+    required: false
+    default: ''
+  instructions-file:
+    description: Trusted workspace-relative Markdown file appended to the default prompt.
+    required: false
+    default: ''
+  device:
+    description: agent-browser device profile. Set to an empty string for the default desktop context.
+    required: false
+    default: iPhone 14
+  model:
+    description: Claude model identifier.
+    required: false
+    default: claude-sonnet-5
+  max-turns:
+    description: Maximum Claude turns, from 1 through 200.
+    required: false
+    default: '80'
+  agent-browser-version:
+    description: Exact agent-browser npm version.
+    required: false
+    default: 0.32.3
+  report-path:
+    description: Workspace-relative Markdown report path.
+    required: false
+    default: qa-report.md
+  screenshots-dir:
+    description: Workspace-relative screenshot evidence directory.
+    required: false
+    default: qa-screenshots
+  videos-dir:
+    description: Workspace-relative video evidence directory.
+    required: false
+    default: qa-videos
+  provenance-path:
+    description: Workspace-relative immutable provenance JSON path.
+    required: false
+    default: qa-provenance.json
+  record-video:
+    description: Ask the QA agent to record one WebM walkthrough.
+    required: false
+    default: 'true'
+  clear-storage:
+    description: Clear local storage before QA begins.
+    required: false
+    default: 'true'
+  pr-number:
+    description: PR number recorded in provenance, when applicable.
+    required: false
+    default: ''
+  tested-head-sha:
+    description: Exact commit SHA recorded in provenance, when applicable.
+    required: false
+    default: ''
+  artifact-name:
+    description: Name of the immutable GitHub Actions artifact.
+    required: false
+    default: agentic-browser-qa
+
+outputs:
+  verdict:
+    description: HEALTHY, MINOR_ISSUES, or CRITICAL_BUGS.
+    value: ${{ steps.final-report.outputs.verdict }}
+  report-ready:
+    description: Whether a complete, machine-validated report was produced.
+    value: ${{ steps.final-report.outputs.ready }}
+  report-path:
+    description: Path to the Markdown report.
+    value: ${{ inputs.report-path }}
+  provenance-path:
+    description: Path to the evidence provenance JSON.
+    value: ${{ inputs.provenance-path }}
+  artifact-id:
+    description: Uploaded evidence artifact ID.
+    value: ${{ steps.upload.outputs.artifact-id }}
+  artifact-url:
+    description: Uploaded evidence artifact URL.
+    value: ${{ steps.upload.outputs.artifact-url }}
+
+runs:
+  using: composite
+  steps:
+    - name: Validate inputs and prepare prompt
+      id: prepare
+      shell: bash
+      env:
+        INPUT_APP_URL: ${{ inputs.app-url }}
+        INPUT_QA_CONTEXT: ${{ inputs.qa-context }}
+        INPUT_INSTRUCTIONS: ${{ inputs.instructions }}
+        INPUT_INSTRUCTIONS_FILE: ${{ inputs.instructions-file }}
+        INPUT_DEVICE: ${{ inputs.device }}
+        INPUT_MODEL: ${{ inputs.model }}
+        INPUT_MAX_TURNS: ${{ inputs.max-turns }}
+        INPUT_AGENT_BROWSER_VERSION: ${{ inputs.agent-browser-version }}
+        INPUT_REPORT_PATH: ${{ inputs.report-path }}
+        INPUT_SCREENSHOTS_DIR: ${{ inputs.screenshots-dir }}
+        INPUT_VIDEOS_DIR: ${{ inputs.videos-dir }}
+        INPUT_PROVENANCE_PATH: ${{ inputs.provenance-path }}
+        INPUT_RECORD_VIDEO: ${{ inputs.record-video }}
+        INPUT_CLEAR_STORAGE: ${{ inputs.clear-storage }}
+        INPUT_PR_NUMBER: ${{ inputs.pr-number }}
+        INPUT_TESTED_HEAD_SHA: ${{ inputs.tested-head-sha }}
+        INPUT_ARTIFACT_NAME: ${{ inputs.artifact-name }}
+      run: node "$GITHUB_ACTION_PATH/scripts/prepare.mjs"
+
+    - name: Setup Node.js for agent-browser
+      uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      with:
+        node-version: '24'
+
+    - name: Install agent-browser
+      shell: bash
+      env:
+        AGENT_BROWSER_VERSION: ${{ steps.prepare.outputs.agent-browser-version }}
+      run: | # zizmor: ignore[adhoc-packages]
+        set -euo pipefail
+        npm install --global "agent-browser@${AGENT_BROWSER_VERSION}"
+        agent-browser install
+
+    - name: Initialize evidence directories
+      shell: bash
+      env:
+        REPORT_PATH: ${{ inputs.report-path }}
+        SCREENSHOTS_DIR: ${{ inputs.screenshots-dir }}
+        VIDEOS_DIR: ${{ inputs.videos-dir }}
+        PROVENANCE_PATH: ${{ inputs.provenance-path }}
+      run: |
+        set -euo pipefail
+        rm -f "$REPORT_PATH" "$PROVENANCE_PATH" qa-structured-output.json
+        rm -rf "$SCREENSHOTS_DIR" "$VIDEOS_DIR"
+        mkdir -p "$SCREENSHOTS_DIR" "$VIDEOS_DIR"
+
+    - name: Warm up browser
+      shell: bash
+      env:
+        APP_URL: ${{ inputs.app-url }}
+        CLEAR_STORAGE: ${{ inputs.clear-storage }}
+        DEVICE: ${{ inputs.device }}
+      run: |
+        set -euo pipefail
+        agent-browser open "$APP_URL"
+        if [ -n "$DEVICE" ]; then
+          agent-browser set device "$DEVICE"
+          agent-browser reload
+        fi
+        if [ "$CLEAR_STORAGE" = true ]; then
+          agent-browser storage local clear || true
+          agent-browser reload
+        fi
+        agent-browser snapshot -i -c
+
+    - name: Run browser QA
+      id: claude-qa
+      continue-on-error: true
+      uses: anthropics/claude-code-action@b47fd721da662d48c5680e154ad16a73ed74d2e0 # v1.0.93
+      with:
+        claude_code_oauth_token: ${{ inputs.claude-code-oauth-token }}
+        github_token: ${{ inputs.github-token }}
+        allowed_bots: dependabot,github-actions
+        show_full_output: true
+        display_report: false
+        use_sticky_comment: false
+        track_progress: false
+        prompt: ${{ steps.prepare.outputs.prompt }}
+        claude_args: |
+          --allowedTools "Bash(agent-browser:*),Edit(${{ inputs.report-path }}),Write(${{ inputs.report-path }})"
+          --disallowedTools "Skill,Read,Glob,Grep"
+          --max-turns ${{ steps.prepare.outputs.max-turns }}
+          --model ${{ steps.prepare.outputs.model }}
+          --json-schema '${{ steps.prepare.outputs.schema }}'
+
+    - name: Capture structured output
+      if: always()
+      shell: bash
+      env:
+        STRUCTURED_OUTPUT: ${{ steps.claude-qa.outputs.structured_output }}
+      run: |
+        if [ -n "$STRUCTURED_OUTPUT" ]; then
+          printf '%s' "$STRUCTURED_OUTPUT" > qa-structured-output.json
+        fi
+
+    - name: Check primary report
+      id: primary-report
+      if: always()
+      continue-on-error: true
+      shell: bash
+      env:
+        REPORT_PATH: ${{ inputs.report-path }}
+        STRUCTURED_OUTPUT: ${{ steps.claude-qa.outputs.structured_output }}
+      run: node "$GITHUB_ACTION_PATH/scripts/policy.mjs" "$REPORT_PATH"
+
+    - name: Retry missing or incomplete report
+      id: claude-qa-retry
+      if: always() && steps.primary-report.outputs.ready != 'true'
+      continue-on-error: true
+      uses: anthropics/claude-code-action@b47fd721da662d48c5680e154ad16a73ed74d2e0 # v1.0.93
+      with:
+        claude_code_oauth_token: ${{ inputs.claude-code-oauth-token }}
+        github_token: ${{ inputs.github-token }}
+        allowed_bots: dependabot,github-actions
+        show_full_output: true
+        display_report: false
+        use_sticky_comment: false
+        track_progress: false
+        prompt: ${{ steps.prepare.outputs.retry-prompt }}
+        claude_args: |
+          --allowedTools "Bash(agent-browser:*),Edit(${{ inputs.report-path }}),Write(${{ inputs.report-path }})"
+          --disallowedTools "Skill,Read,Glob,Grep"
+          --max-turns 40
+          --model ${{ steps.prepare.outputs.model }}
+          --json-schema '${{ steps.prepare.outputs.schema }}'
+
+    - name: Capture retry structured output
+      if: always() && steps.primary-report.outputs.ready != 'true'
+      shell: bash
+      env:
+        STRUCTURED_OUTPUT: ${{ steps.claude-qa-retry.outputs.structured_output }}
+      run: |
+        if [ -n "$STRUCTURED_OUTPUT" ]; then
+          printf '%s' "$STRUCTURED_OUTPUT" > qa-structured-output.json
+        fi
+
+    - name: Validate final QA report
+      id: final-report
+      if: always()
+      continue-on-error: true
+      shell: bash
+      env:
+        REPORT_PATH: ${{ inputs.report-path }}
+        STRUCTURED_OUTPUT: ${{ steps.claude-qa-retry.outputs.structured_output || steps.claude-qa.outputs.structured_output }}
+      run: node "$GITHUB_ACTION_PATH/scripts/policy.mjs" "$REPORT_PATH"
+
+    - name: Sanitize evidence and write provenance
+      if: always()
+      shell: bash
+      env:
+        ACTION_REF: ${{ github.action_ref }}
+        PR_NUMBER: ${{ inputs.pr-number }}
+        TESTED_HEAD_SHA: ${{ inputs.tested-head-sha }}
+        REPORT_PATH: ${{ inputs.report-path }}
+        SCREENSHOTS_DIR: ${{ inputs.screenshots-dir }}
+        VIDEOS_DIR: ${{ inputs.videos-dir }}
+        PROVENANCE_PATH: ${{ inputs.provenance-path }}
+      run: node "$GITHUB_ACTION_PATH/scripts/evidence.mjs"
+
+    - name: Upload immutable QA evidence
+      id: upload
+      if: always()
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: |
+          ${{ inputs.report-path }}
+          qa-structured-output.json
+          ${{ inputs.provenance-path }}
+          ${{ inputs.screenshots-dir }}/
+          ${{ inputs.videos-dir }}/
+        if-no-files-found: warn
+
+    - name: Enforce final report contract
+      if: always()
+      shell: bash
+      env:
+        READY: ${{ steps.final-report.outputs.ready }}
+        REASON: ${{ steps.final-report.outputs.reason }}
+      run: |
+        set -euo pipefail
+        agent-browser close 2>/dev/null || true
+        if [ "$READY" != true ]; then
+          echo "::error::Agentic browser QA did not produce a complete report: ${REASON}"
+          exit 1
+        fi
